@@ -1,468 +1,584 @@
-import { useState, useRef, useEffect } from "react";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { 
-  Users, 
-  Plus, 
-  Heart, 
-  MessageSquare, 
-  Shield, 
-  ThumbsUp, 
-  Send,
-  Clock,
-  User,
-  AlertTriangle,
-  Sparkles,
-  Lock
-} from "lucide-react";
-import { cn } from "@/lib/utils";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Heart, MessageCircle, Users, Shield, Plus, ChevronRight, Send, User } from "lucide-react";
+import { toast } from "sonner";
+import { supabase } from "@/integrations/supabase/client";
+import { useAuth } from "@/hooks/useAuth";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+
+// Database types
+interface Profile {
+  id: string;
+  user_id: string;
+  username: string | null;
+  display_name: string | null;
+}
 
 interface Post {
   id: string;
   content: string;
   topic: string;
-  timestamp: Date;
-  author: string;
-  reactions: {
-    hearts: number;
-    hugs: number;
-    relates: number;
-  };
-  replies: Reply[];
-  isAIModerated?: boolean;
+  user_id: string;
+  is_anonymous: boolean;
+  anonymous_name: string | null;
+  hearts: number;
+  hugs: number;
+  relates: number;
+  created_at: string;
+  profiles?: Profile;
+  replies?: Reply[];
+  user_reactions?: { reaction_type: string }[];
 }
 
 interface Reply {
   id: string;
+  post_id: string;
+  user_id: string;
   content: string;
-  timestamp: Date;
-  author: string;
-  isAIMentor?: boolean;
+  is_anonymous: boolean;
+  anonymous_name: string | null;
+  is_ai_mentor: boolean;
+  created_at: string;
+  profiles?: Profile;
 }
 
-export function SafeSpace() {
-  const [selectedTopic, setSelectedTopic] = useState('general');
-  const [posts, setPosts] = useState<Post[]>([
-    {
-      id: '1',
-      content: "Starting college next month and feeling so anxious about making friends. Anyone else feeling like this? How do you put yourself out there when social situations feel overwhelming?",
-      topic: 'social-anxiety',
-      timestamp: new Date(Date.now() - 2 * 60 * 60 * 1000),
-      author: 'anonymous_butterfly',
-      reactions: { hearts: 12, hugs: 8, relates: 15 },
-      replies: [
-        {
-          id: '1-1',
-          content: "I felt exactly the same way! What helped me was joining just one club related to something I was genuinely interested in. It's easier to talk when you already have something in common. You've got this! 💚",
-          timestamp: new Date(Date.now() - 1.5 * 60 * 60 * 1000),
-          author: 'kind_stranger'
-        },
-        {
-          id: '1-2',
-          content: "Your feelings about starting college are completely valid. Many students experience social anxiety during transitions. Consider these gentle steps: arrive a few minutes early to classes, sit near friendly-looking people, and remember that most others are also looking to connect. Small conversations about assignments can naturally grow into friendships. Take it one interaction at a time. 🌱",
-          timestamp: new Date(Date.now() - 1 * 60 * 60 * 1000),
-          author: 'AI_Mentor',
-          isAIMentor: true
-        }
-      ]
-    },
-    {
-      id: '2', 
-      content: "My parents keep asking about my grades and future plans. I know they care but the pressure is making my anxiety worse. How do I talk to them about giving me some space while still showing I'm responsible?",
-      topic: 'family-stress',
-      timestamp: new Date(Date.now() - 4 * 60 * 60 * 1000),
-      author: 'stressed_student_2024',
-      reactions: { hearts: 9, hugs: 14, relates: 18 },
-      replies: [
-        {
-          id: '2-1',
-          content: "Maybe try having a calm conversation when they're not stressed? I told my parents I'd update them weekly on my progress if they could give me daily space. It worked!",
-          timestamp: new Date(Date.now() - 3 * 60 * 60 * 1000),
-          author: 'peaceful_soul'
-        }
-      ]
-    }
-  ]);
-  
-  const [newPost, setNewPost] = useState('');
+export const SafeSpace = () => {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [selectedTopic, setSelectedTopic] = useState('all');
+  const [newPost, setNewPost] = useState({ content: '', topic: 'general' });
   const [isAnonymous, setIsAnonymous] = useState(true);
   const [showNewPostForm, setShowNewPostForm] = useState(false);
   const [replyingTo, setReplyingTo] = useState<string | null>(null);
   const [replyText, setReplyText] = useState('');
 
+  // Fetch posts with replies and user reactions
+  const { data: posts = [], isLoading } = useQuery({
+    queryKey: ['posts'],
+    queryFn: async () => {
+      const { data, error } = await supabase
+        .from('posts')
+        .select(`
+          *,
+          profiles(username, display_name),
+          replies(
+            *,
+            profiles(username, display_name)
+          ),
+          post_reactions(reaction_type)
+        `)
+        .order('created_at', { ascending: false });
+      
+      if (error) throw error;
+      return data || [];
+    }
+  });
+
   const topics = [
-    { id: 'general', label: 'General Support', count: 24, color: 'bg-blue-100 text-blue-700' },
-    { id: 'anxiety', label: 'Anxiety & Stress', count: 18, color: 'bg-purple-100 text-purple-700' },
-    { id: 'social-anxiety', label: 'Social Situations', count: 15, color: 'bg-green-100 text-green-700' },
-    { id: 'family-stress', label: 'Family & Home', count: 12, color: 'bg-orange-100 text-orange-700' },
-    { id: 'school-pressure', label: 'School & Academic', count: 21, color: 'bg-red-100 text-red-700' },
-    { id: 'identity', label: 'Identity & Self', count: 9, color: 'bg-pink-100 text-pink-700' },
-    { id: 'relationships', label: 'Relationships', count: 16, color: 'bg-yellow-100 text-yellow-700' }
+    { id: 'all', label: 'All Topics', count: posts?.length || 0 },
+    { id: 'anxiety', label: 'Anxiety & Stress', count: posts?.filter(p => p.topic === 'anxiety').length || 0 },
+    { id: 'depression', label: 'Depression', count: posts?.filter(p => p.topic === 'depression').length || 0 },
+    { id: 'relationships', label: 'Relationships', count: posts?.filter(p => p.topic === 'relationships').length || 0 },
+    { id: 'grief', label: 'Grief & Loss', count: posts?.filter(p => p.topic === 'grief').length || 0 },
+    { id: 'recovery', label: 'Recovery Journey', count: posts?.filter(p => p.topic === 'recovery').length || 0 },
+    { id: 'general', label: 'General Support', count: posts?.filter(p => p.topic === 'general').length || 0 },
   ];
 
   const generateAnonymousName = () => {
-    const adjectives = ['kind', 'brave', 'gentle', 'strong', 'peaceful', 'hopeful', 'caring', 'wise'];
-    const nouns = ['soul', 'heart', 'spirit', 'friend', 'warrior', 'dreamer', 'helper', 'light'];
-    const randomNum = Math.floor(Math.random() * 999) + 100;
-    
-    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
-    const noun = nouns[Math.floor(Math.random() * nouns.length)];
-    
-    return `${adj}_${noun}_${randomNum}`;
+    const adjectives = ['Gentle', 'Brave', 'Kind', 'Strong', 'Peaceful', 'Wise', 'Caring', 'Silent', 'Bright', 'Hope'];
+    const nouns = ['River', 'Mountain', 'Star', 'Ocean', 'Moon', 'Sun', 'Tree', 'Bird', 'Butterfly', 'Walker'];
+    return `${adjectives[Math.floor(Math.random() * adjectives.length)]} ${nouns[Math.floor(Math.random() * nouns.length)]}`;
   };
 
-  const generateAIMentorResponse = (postContent: string): string => {
-    const content = postContent.toLowerCase();
-    
-    if (content.includes('anxiety') || content.includes('anxious') || content.includes('worried')) {
-      return "Your anxiety is a natural response to challenging situations. Remember that anxiety often comes from caring deeply about outcomes. Try grounding yourself in the present moment: notice 3 things you can see, 2 you can hear, and 1 you can touch. You're stronger than your anxiety, and this feeling will pass. 🌸";
+  // Create new post mutation
+  const createPostMutation = useMutation({
+    mutationFn: async (postData: { content: string; topic: string; is_anonymous: boolean; anonymous_name?: string }) => {
+      if (!user) throw new Error('Must be logged in');
+      
+      const { data, error } = await supabase
+        .from('posts')
+        .insert([{
+          user_id: user.id,
+          content: postData.content,
+          topic: postData.topic,
+          is_anonymous: postData.is_anonymous,
+          anonymous_name: postData.anonymous_name
+        }])
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['posts'] });
+      setNewPost({ content: '', topic: 'general' });
+      setShowNewPostForm(false);
+      toast.success('Your story has been shared');
+    },
+    onError: (error: any) => {
+      toast.error(error.message);
     }
-    
-    if (content.includes('family') || content.includes('parents') || content.includes('home')) {
-      return "Family dynamics can be complex, especially during times of growth and change. Consider having an open, honest conversation when everyone is calm. Use 'I' statements to express your feelings without blame. Remember, healthy boundaries are a sign of maturity, not rebellion. 💚";
+  });
+
+  // Create reply mutation
+  const createReplyMutation = useMutation({
+    mutationFn: async (replyData: { post_id: string; content: string; is_anonymous: boolean; anonymous_name?: string }) => {
+      if (!user) throw new Error('Must be logged in');
+      
+      const { data, error } = await supabase
+        .from('replies')
+        .insert([{
+          post_id: replyData.post_id,
+          user_id: user.id,
+          content: replyData.content,
+          is_anonymous: replyData.is_anonymous,
+          anonymous_name: replyData.anonymous_name,
+          is_ai_mentor: false
+        }])
+        .select()
+        .single();
+      
+      if (error) throw error;
+      return data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['posts'] });
+      setReplyText('');
+      setReplyingTo(null);
+      toast.success('Reply sent');
+    },
+    onError: (error: any) => {
+      toast.error(error.message);
     }
-    
-    if (content.includes('friend') || content.includes('social') || content.includes('lonely')) {
-      return "Building connections takes time and courage. Start small - a smile, a kind comment, or asking about someone's day. Authentic friendships often form around shared interests or values. Remember, quality matters more than quantity in relationships. You deserve meaningful connections. ✨";
+  });
+
+  // Toggle reaction mutation
+  const toggleReactionMutation = useMutation({
+    mutationFn: async ({ postId, reactionType }: { postId: string; reactionType: 'hearts' | 'hugs' | 'relates' }) => {
+      if (!user) throw new Error('Must be logged in');
+      
+      // Check if user already has this reaction
+      const { data: existing } = await supabase
+        .from('post_reactions')
+        .select('id')
+        .eq('post_id', postId)
+        .eq('user_id', user.id)
+        .eq('reaction_type', reactionType)
+        .single();
+      
+      if (existing) {
+        // Remove reaction
+        const { error } = await supabase
+          .from('post_reactions')
+          .delete()
+          .eq('id', existing.id);
+        if (error) throw error;
+      } else {
+        // Add reaction
+        const { error } = await supabase
+          .from('post_reactions')
+          .insert([{
+            post_id: postId,
+            user_id: user.id,
+            reaction_type: reactionType
+          }]);
+        if (error) throw error;
+      }
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['posts'] });
+    },
+    onError: (error: any) => {
+      toast.error(error.message);
     }
-    
-    if (content.includes('school') || content.includes('grade') || content.includes('academic')) {
-      return "Academic pressure can feel overwhelming, but remember that your worth isn't determined by grades alone. Break large tasks into smaller steps, celebrate progress, and don't hesitate to ask for help when needed. Learning is a journey, not a destination. 📚";
-    }
-    
-    return "Thank you for sharing this with our community. Your vulnerability helps others feel less alone. Remember that seeking support shows strength, and you're taking positive steps for your wellbeing. Every small step forward matters. 🌟";
-  };
+  });
 
   const handleNewPost = () => {
-    if (!newPost.trim()) return;
-
-    const post: Post = {
-      id: Date.now().toString(),
-      content: newPost,
-      topic: selectedTopic,
-      timestamp: new Date(),
-      author: generateAnonymousName(),
-      reactions: { hearts: 0, hugs: 0, relates: 0 },
-      replies: []
-    };
-
-    setPosts(prev => [post, ...prev]);
-    setNewPost('');
-    setShowNewPostForm(false);
-
-    // Simulate AI mentor response after delay
-    setTimeout(() => {
-      const aiReply: Reply = {
-        id: `${post.id}-ai`,
-        content: generateAIMentorResponse(newPost),
-        timestamp: new Date(),
-        author: 'AI_Mentor',
-        isAIMentor: true
-      };
-
-      setPosts(prev => prev.map(p => 
-        p.id === post.id 
-          ? { ...p, replies: [...p.replies, aiReply] }
-          : p
-      ));
-    }, 2000 + Math.random() * 3000);
+    if (!newPost.content.trim() || !user) return;
+    
+    const anonymousName = isAnonymous ? generateAnonymousName() : undefined;
+    
+    createPostMutation.mutate({
+      content: newPost.content,
+      topic: newPost.topic,
+      is_anonymous: isAnonymous,
+      anonymous_name: anonymousName
+    });
   };
 
   const handleReply = (postId: string) => {
-    if (!replyText.trim()) return;
-
-    const reply: Reply = {
-      id: `${postId}-${Date.now()}`,
+    if (!replyText.trim() || !user) return;
+    
+    const anonymousName = isAnonymous ? generateAnonymousName() : undefined;
+    
+    createReplyMutation.mutate({
+      post_id: postId,
       content: replyText,
-      timestamp: new Date(),
-      author: generateAnonymousName()
-    };
-
-    setPosts(prev => prev.map(post => 
-      post.id === postId 
-        ? { ...post, replies: [...post.replies, reply] }
-        : post
-    ));
-
-    setReplyText('');
-    setReplyingTo(null);
+      is_anonymous: isAnonymous,
+      anonymous_name: anonymousName
+    });
   };
 
   const addReaction = (postId: string, reactionType: 'hearts' | 'hugs' | 'relates') => {
-    setPosts(prev => prev.map(post => 
-      post.id === postId
-        ? {
-            ...post,
-            reactions: {
-              ...post.reactions,
-              [reactionType]: post.reactions[reactionType] + 1
-            }
-          }
-        : post
-    ));
+    if (!user) {
+      toast.error('Please sign in to react to posts');
+      return;
+    }
+    toggleReactionMutation.mutate({ postId, reactionType });
   };
 
-  const filteredPosts = selectedTopic === 'general' 
-    ? posts 
-    : posts.filter(post => post.topic === selectedTopic);
+  const filteredPosts = selectedTopic === 'all' ? posts : posts.filter(post => post.topic === selectedTopic);
+
+  const getAuthorName = (post: Post | Reply) => {
+    if (post.is_anonymous) {
+      return post.anonymous_name || 'Anonymous';
+    }
+    return post.profiles?.display_name || post.profiles?.username || 'User';
+  };
+
+  const formatTimeAgo = (dateString: string) => {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffInMinutes = Math.floor((now.getTime() - date.getTime()) / (1000 * 60));
+    
+    if (diffInMinutes < 1) return 'just now';
+    if (diffInMinutes < 60) return `${diffInMinutes}m ago`;
+    if (diffInMinutes < 1440) return `${Math.floor(diffInMinutes / 60)}h ago`;
+    return `${Math.floor(diffInMinutes / 1440)}d ago`;
+  };
+
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-teal-50 flex items-center justify-center">
+        <Card className="max-w-md mx-auto text-center">
+          <CardContent className="pt-6">
+            <Shield className="h-16 w-16 text-primary mx-auto mb-4" />
+            <h2 className="text-2xl font-bold mb-2">SafeSpace</h2>
+            <p className="text-muted-foreground mb-4">
+              Please sign in to access our community support space
+            </p>
+            <Button onClick={() => window.location.href = '/auth'}>
+              Sign In to Continue
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-teal-50 flex items-center justify-center">
+        <div className="animate-pulse">Loading community posts...</div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-orange-50 to-amber-100 dark:from-orange-950/30 dark:to-amber-950/20 p-4 lg:pl-64 pt-20 lg:pt-8">
-      <div className="max-w-6xl mx-auto space-y-6">
-        
+    <div className="min-h-screen bg-gradient-to-br from-purple-50 via-blue-50 to-teal-50 p-6">
+      <div className="max-w-6xl mx-auto">
         {/* Header */}
-        <div className="text-center space-y-4">
-          <div className="inline-flex items-center gap-3 mb-4">
-            <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shadow-wellness">
+        <div className="text-center mb-8">
+          <div className="flex items-center justify-center gap-3 mb-4">
+            <div className="w-12 h-12 bg-gradient-to-br from-primary to-secondary rounded-xl flex items-center justify-center shadow-lg">
               <Users className="w-6 h-6 text-white" />
             </div>
             <div>
-              <h1 className="text-2xl font-bold text-orange-700 dark:text-orange-300">SafeSpace</h1>
-              <Badge variant="secondary" className="text-xs">Anonymous Community</Badge>
+              <h1 className="text-3xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+                SafeSpace
+              </h1>
+              <Badge variant="secondary" className="mt-1">Anonymous Community</Badge>
             </div>
           </div>
-          <p className="text-orange-600 dark:text-orange-400 max-w-2xl mx-auto">
-            A safe, anonymous space to share experiences and find peer support. 
-            AI moderation ensures a positive, supportive environment.
+          <p className="text-muted-foreground max-w-2xl mx-auto">
+            Share your experiences and find support in our safe, anonymous community. 
+            Connect with others who understand your journey.
           </p>
         </div>
 
         <div className="grid lg:grid-cols-4 gap-6">
-          
           {/* Sidebar - Topics */}
-          <div className="lg:col-span-1">
-            <Card className="bg-white/70 dark:bg-black/20 backdrop-blur-sm border-0 shadow-wellness sticky top-24">
-              <CardHeader>
-                <CardTitle className="text-lg">Support Topics</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-2">
-                {topics.map((topic) => (
-                  <Button
-                    key={topic.id}
-                    variant={selectedTopic === topic.id ? "default" : "ghost"}
-                    className={cn(
-                      "w-full justify-between h-auto p-3",
-                      selectedTopic === topic.id && "bg-orange-600 hover:bg-orange-700"
-                    )}
-                    onClick={() => setSelectedTopic(topic.id)}
-                  >
-                    <span className="text-left">
-                      <div className="font-medium text-sm">{topic.label}</div>
-                    </span>
-                    <Badge variant="secondary" className={cn("text-xs", topic.color)}>
-                      {topic.count}
-                    </Badge>
-                  </Button>
-                ))}
-              </CardContent>
-            </Card>
-          </div>
+          <Card className="lg:col-span-1 h-fit">
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <MessageCircle className="w-5 h-5" />
+                Support Topics
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2">
+              {topics.map((topic) => (
+                <Button
+                  key={topic.id}
+                  variant={selectedTopic === topic.id ? "default" : "outline"}
+                  className="w-full justify-between"
+                  onClick={() => setSelectedTopic(topic.id)}
+                >
+                  <span>{topic.label}</span>
+                  <Badge variant="secondary">{topic.count}</Badge>
+                </Button>
+              ))}
+            </CardContent>
+          </Card>
 
           {/* Main Content */}
-          <div className="lg:col-span-3 space-y-4">
-            
+          <div className="lg:col-span-3 space-y-6">
             {/* New Post Button */}
             <div className="flex justify-between items-center">
-              <h2 className="text-xl font-semibold text-orange-700 dark:text-orange-300">
-                {topics.find(t => t.id === selectedTopic)?.label || 'All Topics'}
+              <h2 className="text-xl font-semibold">
+                {topics.find(t => t.id === selectedTopic)?.label || 'Community Posts'}
               </h2>
-              <Button 
-                onClick={() => setShowNewPostForm(true)}
-                className="bg-orange-600 hover:bg-orange-700"
-              >
-                <Plus className="w-4 h-4 mr-2" />
-                Share Your Experience
+              <Button onClick={() => setShowNewPostForm(true)} className="flex items-center gap-2">
+                <Plus className="w-4 h-4" />
+                Share Your Story
               </Button>
             </div>
 
             {/* New Post Form */}
             {showNewPostForm && (
-              <Card className="bg-white/70 dark:bg-black/20 backdrop-blur-sm border-0 shadow-wellness">
+              <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
-                    <Lock className="w-5 h-5 text-orange-600" />
-                    Share Anonymously
+                    <Shield className="w-5 h-5" />
+                    Share Your Experience
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  <Textarea
-                    placeholder="Share what's on your mind... You're in a safe space here."
-                    value={newPost}
-                    onChange={(e) => setNewPost(e.target.value)}
-                    className="min-h-[100px] bg-white/50 dark:bg-black/10"
-                  />
-                  <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Shield className="w-4 h-4" />
-                      <span>Posted as: {generateAnonymousName()}</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <Button variant="outline" onClick={() => setShowNewPostForm(false)}>
-                        Cancel
-                      </Button>
-                      <Button onClick={handleNewPost} className="bg-orange-600 hover:bg-orange-700">
-                        <Send className="w-4 h-4 mr-2" />
-                        Share
-                      </Button>
-                    </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="topic">Topic</Label>
+                    <Select value={newPost.topic} onValueChange={(value) => setNewPost(prev => ({ ...prev, topic: value }))}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a topic" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="general">General Support</SelectItem>
+                        <SelectItem value="anxiety">Anxiety & Stress</SelectItem>
+                        <SelectItem value="depression">Depression</SelectItem>
+                        <SelectItem value="relationships">Relationships</SelectItem>
+                        <SelectItem value="grief">Grief & Loss</SelectItem>
+                        <SelectItem value="recovery">Recovery Journey</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  
+                  <div className="space-y-2">
+                    <Label htmlFor="content">Your Story</Label>
+                    <Textarea
+                      id="content"
+                      placeholder="Share what's on your mind... You're in a safe space."
+                      value={newPost.content}
+                      onChange={(e) => setNewPost(prev => ({ ...prev, content: e.target.value }))}
+                      className="min-h-[120px]"
+                    />
+                  </div>
+
+                  <div className="flex items-center space-x-2">
+                    <Switch
+                      id="anonymous"
+                      checked={isAnonymous}
+                      onCheckedChange={setIsAnonymous}
+                    />
+                    <Label htmlFor="anonymous" className="text-sm">
+                      Post anonymously ({isAnonymous ? 'Will show as anonymous' : 'Will show your name'})
+                    </Label>
+                  </div>
+
+                  <div className="flex justify-end gap-2">
+                    <Button variant="outline" onClick={() => setShowNewPostForm(false)}>
+                      Cancel
+                    </Button>
+                    <Button onClick={handleNewPost} disabled={!newPost.content.trim()}>
+                      <Send className="w-4 h-4 mr-2" />
+                      Share Story
+                    </Button>
                   </div>
                 </CardContent>
               </Card>
             )}
 
             {/* Posts Feed */}
-            <div className="space-y-4">
+            <div className="space-y-6">
               {filteredPosts.map((post) => (
-                <Card key={post.id} className="bg-white/70 dark:bg-black/20 backdrop-blur-sm border-0 shadow-soft">
+                <Card key={post.id} className="overflow-hidden">
                   <CardContent className="p-6">
-                    
-                    {/* Post Header */}
-                    <div className="flex items-start justify-between mb-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 rounded-full bg-gradient-to-br from-orange-400 to-amber-500 flex items-center justify-center">
-                          <User className="w-4 h-4 text-white" />
+                    <div className="space-y-4">
+                      {/* Post Header */}
+                      <div className="flex items-center gap-3 mb-4">
+                        <div className="w-8 h-8 bg-primary/10 rounded-full flex items-center justify-center">
+                          <User className="w-4 h-4 text-primary" />
                         </div>
                         <div>
-                          <div className="font-medium text-sm">{post.author}</div>
-                          <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                            <Clock className="w-3 h-3" />
-                            {post.timestamp.toLocaleDateString()} at {post.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                          </div>
+                          <div className="font-medium text-sm">{getAuthorName(post)}</div>
+                          <div className="text-xs text-muted-foreground">{formatTimeAgo(post.created_at)}</div>
                         </div>
+                        <Badge variant="outline" className="ml-auto">
+                          {topics.find(t => t.id === post.topic)?.label}
+                        </Badge>
                       </div>
-                      <Badge variant="outline" className="text-xs">
-                        {topics.find(t => t.id === post.topic)?.label}
-                      </Badge>
-                    </div>
 
-                    {/* Post Content */}
-                    <p className="text-sm leading-relaxed mb-4">{post.content}</p>
+                      {/* Post Content */}
+                      <p className="text-sm leading-relaxed whitespace-pre-wrap">{post.content}</p>
 
-                    {/* Reactions */}
-                    <div className="flex items-center gap-4 mb-4 pb-4 border-b">
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="gap-2 text-red-600 hover:text-red-700 hover:bg-red-50"
-                        onClick={() => addReaction(post.id, 'hearts')}
-                      >
-                        <Heart className="w-4 h-4" />
-                        <span>{post.reactions.hearts}</span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="gap-2 text-blue-600 hover:text-blue-700 hover:bg-blue-50"
-                        onClick={() => addReaction(post.id, 'hugs')}
-                      >
-                        🤗 <span>{post.reactions.hugs}</span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="gap-2 text-green-600 hover:text-green-700 hover:bg-green-50"
-                        onClick={() => addReaction(post.id, 'relates')}
-                      >
-                        💚 <span>{post.reactions.relates}</span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="gap-2 ml-auto"
-                        onClick={() => setReplyingTo(replyingTo === post.id ? null : post.id)}
-                      >
-                        <MessageSquare className="w-4 h-4" />
-                        Reply
-                      </Button>
-                    </div>
+                      {/* Reactions */}
+                      <div className="flex items-center gap-4 pt-4 border-t">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-2 hover:bg-red-50 hover:text-red-600"
+                          onClick={() => addReaction(post.id, 'hearts')}
+                        >
+                          <Heart className="w-4 h-4" />
+                          <span>{post.hearts}</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-2 hover:bg-blue-50 hover:text-blue-600"
+                          onClick={() => addReaction(post.id, 'hugs')}
+                        >
+                          🤗 <span>{post.hugs}</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-2 hover:bg-green-50 hover:text-green-600"
+                          onClick={() => addReaction(post.id, 'relates')}
+                        >
+                          💚 <span>{post.relates}</span>
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="gap-2 ml-auto"
+                          onClick={() => setReplyingTo(replyingTo === post.id ? null : post.id)}
+                        >
+                          <MessageCircle className="w-4 h-4" />
+                          Reply
+                        </Button>
+                      </div>
 
-                    {/* Replies */}
-                    {post.replies.length > 0 && (
-                      <div className="space-y-3">
-                        {post.replies.map((reply) => (
-                          <div key={reply.id} className={cn(
-                            "pl-4 border-l-2 border-orange-200 dark:border-orange-800",
-                            reply.isAIMentor && "bg-gradient-to-r from-orange-50 to-amber-50 dark:from-orange-900/20 dark:to-amber-900/20 p-3 rounded-r-lg border-l-orange-400"
-                          )}>
-                            <div className="flex items-center gap-2 mb-2">
-                              <div className={cn(
-                                "w-6 h-6 rounded-full flex items-center justify-center text-xs",
-                                reply.isAIMentor 
-                                  ? "bg-gradient-to-br from-orange-500 to-amber-600 text-white"
-                                  : "bg-gray-300 dark:bg-gray-600 text-gray-600 dark:text-gray-300"
-                              )}>
-                                {reply.isAIMentor ? <Sparkles className="w-3 h-3" /> : <User className="w-3 h-3" />}
+                      {/* Replies */}
+                      {post.replies && post.replies.length > 0 && (
+                        <div className="mt-4 space-y-3">
+                          <div className="text-sm font-medium text-muted-foreground">
+                            {post.replies.length} {post.replies.length === 1 ? 'Reply' : 'Replies'}
+                          </div>
+                          {post.replies.map((reply) => (
+                            <div key={reply.id} className="bg-muted/50 rounded-lg p-3 ml-4">
+                              <div className="flex items-center gap-2 mb-2">
+                                <div className="w-6 h-6 bg-primary/10 rounded-full flex items-center justify-center">
+                                  <User className="w-3 h-3 text-primary" />
+                                </div>
+                                <span className={`text-xs font-medium ${reply.is_ai_mentor ? 'text-purple-600' : 'text-foreground'}`}>
+                                  {getAuthorName(reply)}
+                                </span>
+                                {reply.is_ai_mentor && (
+                                  <Badge variant="secondary" className="text-xs bg-purple-100 text-purple-700">
+                                    AI Mentor
+                                  </Badge>
+                                )}
+                                <span className="text-xs text-muted-foreground">{formatTimeAgo(reply.created_at)}</span>
                               </div>
-                              <span className={cn(
-                                "font-medium text-xs",
-                                reply.isAIMentor && "text-orange-700 dark:text-orange-300"
-                              )}>
-                                {reply.author}
-                                {reply.isAIMentor && <Badge variant="secondary" className="ml-2 text-xs">AI Mentor</Badge>}
-                              </span>
-                              <span className="text-xs text-muted-foreground">
-                                {reply.timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
+                              <p className="text-sm text-muted-foreground">{reply.content}</p>
                             </div>
-                            <p className="text-sm leading-relaxed">{reply.content}</p>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Reply Form */}
-                    {replyingTo === post.id && (
-                      <div className="mt-4 pt-4 border-t space-y-3">
-                        <Textarea
-                          placeholder="Share your supportive thoughts..."
-                          value={replyText}
-                          onChange={(e) => setReplyText(e.target.value)}
-                          className="bg-white/50 dark:bg-black/10"
-                        />
-                        <div className="flex justify-end gap-2">
-                          <Button variant="outline" size="sm" onClick={() => setReplyingTo(null)}>
-                            Cancel
-                          </Button>
-                          <Button size="sm" onClick={() => handleReply(post.id)} className="bg-orange-600 hover:bg-orange-700">
-                            Reply
-                          </Button>
+                          ))}
                         </div>
-                      </div>
-                    )}
+                      )}
+
+                      {/* Reply Form */}
+                      {replyingTo === post.id && (
+                        <div className="mt-4 space-y-3 p-4 bg-muted/30 rounded-lg">
+                          <Textarea
+                            placeholder="Share your thoughts or offer support..."
+                            value={replyText}
+                            onChange={(e) => setReplyText(e.target.value)}
+                            className="min-h-[80px]"
+                          />
+                          <div className="flex justify-between items-center">
+                            <div className="flex items-center space-x-2">
+                              <Switch
+                                id={`reply-anonymous-${post.id}`}
+                                checked={isAnonymous}
+                                onCheckedChange={setIsAnonymous}
+                              />
+                              <Label htmlFor={`reply-anonymous-${post.id}`} className="text-xs">
+                                Reply anonymously
+                              </Label>
+                            </div>
+                            <div className="flex gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => setReplyingTo(null)}
+                              >
+                                Cancel
+                              </Button>
+                              <Button
+                                size="sm"
+                                onClick={() => handleReply(post.id)}
+                                disabled={!replyText.trim()}
+                              >
+                                <Send className="w-3 h-3 mr-2" />
+                                Reply
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
                   </CardContent>
                 </Card>
               ))}
+
+              {filteredPosts.length === 0 && (
+                <Card>
+                  <CardContent className="text-center py-12">
+                    <Users className="w-12 h-12 text-muted-foreground mx-auto mb-4" />
+                    <h3 className="text-lg font-semibold mb-2">No posts yet</h3>
+                    <p className="text-muted-foreground mb-4">
+                      Be the first to share your story in this topic
+                    </p>
+                    <Button onClick={() => setShowNewPostForm(true)}>
+                      <Plus className="w-4 h-4 mr-2" />
+                      Create First Post
+                    </Button>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </div>
         </div>
 
         {/* Community Guidelines */}
-        <Card className="bg-gradient-to-r from-orange-100 to-amber-100 dark:from-orange-900/30 dark:to-amber-900/30 border border-orange-200 dark:border-orange-800">
-          <CardContent className="p-6">
-            <div className="flex items-start gap-4">
-              <div className="w-10 h-10 rounded-full bg-orange-200 dark:bg-orange-800 flex items-center justify-center flex-shrink-0">
-                <Shield className="w-5 h-5 text-orange-600 dark:text-orange-300" />
-              </div>
-              <div>
-                <h3 className="font-semibold text-orange-700 dark:text-orange-300 mb-2">
-                  Community Guidelines
-                </h3>
-                <div className="text-sm text-orange-600 dark:text-orange-400 space-y-1">
-                  <p>• Be kind, supportive, and respectful to all community members</p>
-                  <p>• Share experiences, not advice (unless specifically asked)</p>
-                  <p>• Maintain anonymity - don't share personal identifying information</p>
-                  <p>• AI moderation actively monitors for harmful content and safety concerns</p>
-                  <p>• If you're in crisis, please contact emergency services or a trusted adult immediately</p>
-                </div>
-              </div>
+        <Card className="mt-12">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Shield className="w-5 h-5" />
+              Community Guidelines
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="grid md:grid-cols-3 gap-4 text-sm text-muted-foreground">
+            <div>
+              <h4 className="font-medium text-foreground mb-2">Be Kind & Supportive</h4>
+              <p>Treat others with empathy and respect. We're all here to support each other.</p>
+            </div>
+            <div>
+              <h4 className="font-medium text-foreground mb-2">Stay Anonymous</h4>
+              <p>Protect your privacy and others'. Avoid sharing identifying information.</p>
+            </div>
+            <div>
+              <h4 className="font-medium text-foreground mb-2">Seek Professional Help</h4>
+              <p>This is peer support, not professional therapy. Reach out to professionals when needed.</p>
             </div>
           </CardContent>
         </Card>
-        
       </div>
     </div>
   );
-}
+};

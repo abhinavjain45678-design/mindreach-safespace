@@ -14,7 +14,151 @@ export type Database = {
   }
   public: {
     Tables: {
-      [_ in never]: never
+      post_reactions: {
+        Row: {
+          created_at: string
+          id: string
+          post_id: string
+          reaction_type: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          post_id: string
+          reaction_type: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          post_id?: string
+          reaction_type?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "post_reactions_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      posts: {
+        Row: {
+          anonymous_name: string | null
+          content: string
+          created_at: string
+          hearts: number
+          hugs: number
+          id: string
+          is_anonymous: boolean
+          relates: number
+          topic: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          anonymous_name?: string | null
+          content: string
+          created_at?: string
+          hearts?: number
+          hugs?: number
+          id?: string
+          is_anonymous?: boolean
+          relates?: number
+          topic: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          anonymous_name?: string | null
+          content?: string
+          created_at?: string
+          hearts?: number
+          hugs?: number
+          id?: string
+          is_anonymous?: boolean
+          relates?: number
+          topic?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      profiles: {
+        Row: {
+          avatar_url: string | null
+          created_at: string
+          display_name: string | null
+          id: string
+          updated_at: string
+          user_id: string
+          username: string | null
+        }
+        Insert: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id: string
+          username?: string | null
+        }
+        Update: {
+          avatar_url?: string | null
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          updated_at?: string
+          user_id?: string
+          username?: string | null
+        }
+        Relationships: []
+      }
+      replies: {
+        Row: {
+          anonymous_name: string | null
+          content: string
+          created_at: string
+          id: string
+          is_ai_mentor: boolean
+          is_anonymous: boolean
+          post_id: string
+          user_id: string
+        }
+        Insert: {
+          anonymous_name?: string | null
+          content: string
+          created_at?: string
+          id?: string
+          is_ai_mentor?: boolean
+          is_anonymous?: boolean
+          post_id: string
+          user_id: string
+        }
+        Update: {
+          anonymous_name?: string | null
+          content?: string
+          created_at?: string
+          id?: string
+          is_ai_mentor?: boolean
+          is_anonymous?: boolean
+          post_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "replies_post_id_fkey"
+            columns: ["post_id"]
+            isOneToOne: false
+            referencedRelation: "posts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
